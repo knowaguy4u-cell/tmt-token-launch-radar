@@ -25,6 +25,12 @@ assert(rows.length >= 100 && rows.length <= 4000);
 const known = new Map(snapshot.protocols.map(p => [p.slug,p]));
 const seen = new Set();
 const allSteps = new Set();
+const stepCounts = new Map();
+const comparableRatios = snapshot.protocols.filter(p=>p.mcap_usd!==null && p.tvl_usd>0).map(p=>p.mcap_usd/p.tvl_usd).sort((a,b)=>a-b);
+const lo=quantile(comparableRatios,.01), hi=quantile(comparableRatios,.99);
+const winsor=x=>Math.max(lo,Math.min(hi,x));
+const globalMedian=quantile(comparableRatios.map(winsor),.5);
+const globalP75=quantile(comparableRatios.map(winsor),.75);
 const denied = new Set(['Bridge','Canonical Bridge','Liquid Staking','Liquid Restaking','Restaked BTC','CEX']);
 const expected = snapshot.protocols.filter(p => p.mcap_usd === null && p.symbol === null && p.gecko_id === null && !denied.has(p.category) && !/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i.test(p.name) && !/\b(wrapped|staked|staking)\b/i.test(p.name) && !/^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name));
 assert.equal(rows.length, expected.length);
@@ -38,10 +44,25 @@ for (const [i,r] of rows.entries()) {
   assert.equal(r.rank, i+1);
   assert(Number.isSafeInteger(r.implied_value_usd) && r.implied_value_usd > 0 && r.implied_value_usd <= 1e14);
   if (i) assert(rows[i-1].implied_value_usd >= r.implied_value_usd);
-  assert(r.farm_steps.length >= 4 && r.farm_steps.length <= 6);
+  assert.equal(r.farm_steps.length,5);
+  const group=snapshot.protocols.filter(p=>p.mcap_usd!==null && p.tvl_usd>0 && p.category===r.category).map(p=>winsor(p.mcap_usd/p.tvl_usd)).sort((a,b)=>a-b);
+  assert.equal(r.multiple_global,globalMedian);
+  assert.equal(r.multiple_p75,group.length>=4?quantile(group,.75):globalP75);
+  assert.equal(r.p75_source,group.length>=4?'category':'global');
+  for(const [value,multiple] of [[r.implied_at_global,r.multiple_global],[r.implied_at_p75,r.multiple_p75]]) {
+    assert(Number.isFinite(multiple) && multiple>0);
+    assert.equal(value,Math.round(r.tvl_usd*multiple*r.growth_factor*r.age_factor));
+  }
+  assert.equal(r.sensitivity_low,Math.min(r.implied_at_global,r.implied_at_p75));
+  assert.equal(r.sensitivity_high,Math.max(r.implied_at_global,r.implied_at_p75));
+  assert(r.sensitivity_low<=r.sensitivity_high);
   for (const step of r.farm_steps) {
     assert(typeof step === 'string' && step.trim().length >= 20 && step.trim().length <= 600);
     assert(step.includes(r.name) && /cost|budget/i.test(step) && /time estimate/i.test(step));
+    assert(/\$[0-9]/.test(step) && /time estimate:.*(?:minutes|week)/i.test(step));
+    assert(step.includes(r.category??'uncategorized') && step.includes('TVL'));
+    for(const chain of r.chains.slice(0,3)) assert(step.includes(chain));
+    stepCounts.set(step,(stepCounts.get(step)??0)+1);
     assert(!allSteps.has(step)); allSteps.add(step);
   }
   assert.equal(r.implied_value_usd, Math.max(1,Math.min(1e14,Math.round(r.tvl_usd*r.multiple_used*r.growth_factor*r.age_factor))));
@@ -50,6 +71,9 @@ for (const [i,r] of rows.entries()) {
   if (r.change_7d === null) assert.equal(r.growth_factor,1);
   if (r.listed_at === null) assert.equal(r.age_factor,1);
 }
+const baseline=JSON.parse(readFileSync(new URL('./round2-values.json',import.meta.url),'utf8'));
+assert.deepEqual(rows.map(r=>[r.slug,r.rank,r.implied_value_usd]),baseline);
+console.log(`PASS: round-2 baseline identical: ${rows.length} row identities, ranks and implied values; 0 differences`);
 assert(new Set(rows.map(r=>r.implied_value_usd)).size > 1);
 for (const slug of snapshot.watchlist) assert(seen.has(slug));
 assert.equal(snapshot.protocols.filter(p=>p.mcap_usd!==null && p.tvl_usd>0).length,144);
@@ -73,6 +97,12 @@ for(const f of files) {
   const text=f.bytes.toString('utf8');
   // Conservative offline check across every source context.
   assert(!/https?:\/\//i.test(text),f.relative);
+}
+const artifactFiles=walk(out);
+assert(artifactFiles.length<=400 && artifactFiles.reduce((n,f)=>n+f.bytes.length,0)<=4*1024*1024);
+for(const f of artifactFiles.filter(f=>['.js','.html','.css','.json'].includes(extname(f.path)))) {
+ if(extname(f.path)!=='.json') assert(!/(?:https?:)?\/\//i.test(f.bytes.toString('utf8').replaceAll(snapshot.source,'snapshot provenance')),f.relative);
+ assert(!/has no token/i.test(f.bytes.toString('utf8')),f.relative);
 }
 const shots=walk(join(out,'screenshots'));
 assert(shots.length>=3 && shots.length<=4);
@@ -117,6 +147,8 @@ console.log('PASS: candidate separation, formula, factors, unique farm text, reo
 console.log('PASS: consecutive runs identical for every output file');
 console.log(`board.json SHA256 ${sha(bytes)}`);
 console.log(`dossier.json SHA256 ${sha(dossier)} (${dossier.length} bytes)`);
+console.log(`PASS: sensitivity formulas, comparable percentiles, ordered ranges; farm steps ${allSteps.size} distinct / ${rows.length*5}, maximum sharing ${Math.max(...stepCounts.values())}`);
+console.log(`PASS: output bundle ${artifactFiles.length} files, ${artifactFiles.reduce((n,f)=>n+f.bytes.length,0)} bytes; offline specifiers and language`);
 console.log('Top 10:');
 for(const r of rows.slice(0,10)) console.log(`${r.rank}. ${r.name} (${r.slug}): $${r.implied_value_usd.toLocaleString('en-US')}`);
 

@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const nodes=new Map();
 const node=id=>{if(!nodes.has(id))nodes.set(id,{innerHTML:'',textContent:''});return nodes.get(id)};
-const sorts=['rank','name','tvl_usd','change_7d','age_years','multiple_used','implied_value_usd'].map(key=>({dataset:{sort:key}}));
+const sorts=['rank','name','tvl_usd','change_7d','age_years','multiple_used','implied_value_usd','sensitivity_low'].map(key=>({dataset:{sort:key}}));
 const listeners={};
 const context=vm.createContext({URLSearchParams,console,location:{hash:'',pathname:'/dashboard/index.html'},history:{replaceState(){}},document:{querySelector:node,querySelectorAll:()=>sorts}});
 context.window=context;
@@ -14,6 +14,7 @@ vm.runInContext(readFileSync('out/data.js','utf8'),context);
 vm.runInContext(readFileSync('dashboard/app.js','utf8'),context);
 const count=()=>Number(node('#count').textContent.split(' ')[0]);
 assert.equal(count(),198);
+assert(node('#app').innerHTML.includes('Sensitivity range'));
 node('#search').oninput({target:{value:'Sentora'}});assert.equal(count(),1);
 node('#reset').onclick();
 node('#watch').onchange({target:{checked:true}});assert.equal(count(),40);
@@ -40,6 +41,21 @@ context.location.hash='#p=sentora-curator';listeners.hashchange();
 const detail=node('#app').innerHTML;
 assert(detail.includes('$498,197,777'));
 assert(detail.includes('Full-precision derivation'));
+assert(detail.includes('<h2>Sensitivity</h2>'));
+for(const r of context.RADAR.rows) {
+ context.location.hash='#p='+encodeURIComponent(r.slug);listeners.hashchange();
+ const html=node('#app').innerHTML;
+ for(const value of [r.tvl_usd,r.implied_at_global,r.implied_at_p75,r.implied_value_usd]) assert(html.includes('$'+value.toLocaleString('en-US')));
+ assert(html.includes(r.p75_source==='global'?'Global 75th percentile':'Category 75th percentile'));
+ assert(html.includes('Sensitivity estimates, not predictions'));
+}
+// Exercise null-last sorting with missing presentation values in both directions.
+const saved=context.RADAR.rows[0].sensitivity_low;
+context.RADAR.rows[0].sensitivity_low=null;
+context.location.hash='';listeners.hashchange();
+const rangeSort=sorts.find(b=>b.dataset.sort==='sensitivity_low');
+for(let i=0;i<2;i++){rangeSort.onclick();const slugs=[...node('tbody').innerHTML.matchAll(/href="#p=([^"]+)"/g)].map(m=>decodeURIComponent(m[1]));assert.equal(slugs.at(-1),context.RADAR.rows[0].slug);}
+context.RADAR.rows[0].sensitivity_low=saved;
 assert.equal((detail.match(/<li>/g)||[]).length,5);
 assert(detail.includes(context.RADAR.rows[0].farm_steps[0]));
 context.location.hash='';listeners.hashchange();assert.equal(count(),198);

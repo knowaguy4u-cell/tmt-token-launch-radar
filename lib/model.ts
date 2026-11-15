@@ -58,13 +58,14 @@ export function farmSteps(p: SnapshotProtocol): string[] {
   // Limit the chain list in prose; the complete list remains on the row.
   const network = chain.length > 100 ? `${p.chains.slice(0, 3).join(', ')} (choose one supported chain)` : chain;
   const capital = p.tvl_usd >= 1e9 ? 150 : p.tvl_usd >= 1e8 ? 100 : 50;
-  const context = `${p.name} [${p.slug}] on ${network}`;
+  const tier = p.tvl_usd >= 1e9 ? '$1B+ TVL' : p.tvl_usd >= 1e8 ? '$100M–$1B TVL' : p.tvl_usd >= 5e7 ? '$50M–$100M TVL' : 'under $50M TVL';
+  const context = `${p.name} on ${network} (${p.category ?? 'uncategorized'}; ${tier})`;
   const task = action(p.category);
   const governanceOnly = task.startsWith('review public');
   return [
-    `${context}: confirm the official app, supported assets and ${p.category ?? 'protocol'} access requirements before connecting a wallet. Cost estimate: $0; time estimate: 10 minutes. Stop if access is restricted.`,
+    `${context}: use the snapshot’s network names to verify the official product, supported assets and ${p.category ?? 'protocol'} access requirements before connecting a wallet. Cost estimate: $0; time estimate: 10 minutes. Stop if access is restricted.`,
     `${context}: ${task}. Budget at most $${capital} in capital and $3–15 in fees; for discussion alone budget $0. Time estimate: 15–25 minutes. Skip if no suitable product is available.`,
-    `${context}: ${governanceOnly ? 'follow up on the governance question with evidence from its documentation' : 'inspect the transaction receipt, record balances and test a partial withdrawal or close before increasing exposure'}. Cost estimate: ${governanceOnly ? '$0' : '$3–15 in fees with capital still at risk'}; time estimate: 15 minutes.`,
+    `${context}: ${governanceOnly ? 'follow up on the governance question with evidence from its documentation' : 'inspect the receipt from that product action, record the resulting asset or position balance and test its partial exit before increasing exposure'}. Cost estimate: ${governanceOnly ? '$0' : '$3–15 in fees with capital still at risk'}; time estimate: 15 minutes.`,
     `${context}: revisit the ${p.category ?? 'protocol'} activity once a week for four weeks; ${governanceOnly ? 'track replies and public proposals' : 'check position health and repeat the same small action only when useful'}. Cost estimate: $0–15 per visit, maximum capital $${capital}; time estimate: 10 minutes per week. Rewards are unconfirmed.`,
     `${context}: ${governanceOnly ? 'archive discussion links and review any official participation terms' : 'withdraw or close the trial position through the official app and reconcile fees and returned assets'}. Cost estimate: $0–15 plus any disclosed exit fee; time estimate: 15 minutes plus the displayed settlement queue.`,
   ];
@@ -78,6 +79,8 @@ export function buildBoard(snapshot: Snapshot) {
   const ratios = comps.map(p => p.mcap_usd! / p.tvl_usd).sort((a, b) => a - b);
   const low = quantile(ratios, MODEL.winsor_low), high = quantile(ratios, MODEL.winsor_high);
   const global = quantile(ratios.map(x => clamp(x, low, high)), 0.5);
+  // Sensitivity uses unshrunk percentiles of the same globally winsorized comparables.
+  const globalP75 = quantile(ratios.map(x => clamp(x, low, high)), 0.75);
   const categories = new Map<string | null, number[]>();
   for (const p of comps) {
     const group = categories.get(p.category) ?? [];
@@ -87,6 +90,8 @@ export function buildBoard(snapshot: Snapshot) {
   const changes = candidates.flatMap(p => p.change_7d === null ? [] : [p.change_7d]).sort((a, b) => a - b);
   const scored = candidates.map(p => {
     const group = categories.get(p.category) ?? [];
+    const p75Source = group.length >= MODEL.minimum_comps ? 'category' : 'global';
+    const p75 = p75Source === 'category' ? quantile([...group].sort((a,b) => a-b), 0.75) : globalP75;
     const weight = group.length / (group.length + MODEL.shrinkage);
     const multiple = group.length >= MODEL.minimum_comps ? weight * quantile([...group].sort((a,b) => a-b), 0.5) + (1-weight)*global : global;
     // Ties use average zero-based rank; min/max map to 0/1 when distinct.
@@ -99,6 +104,11 @@ export function buildBoard(snapshot: Snapshot) {
     const age = years === null ? 1 : clamp(MODEL.age_base + MODEL.age_weight*Math.log1p(years), MODEL.age_base, MODEL.age_cap);
     const implied = clamp(Math.round(p.tvl_usd*multiple*growth*age), 1, 100000000000000);
     return { ...p, rank: 0, token_status: 'pre-token', age_days: days, age_years: years,
+      multiple_global: global, multiple_p75: p75, p75_source: p75Source,
+      implied_at_global: Math.round(p.tvl_usd*global*growth*age),
+      implied_at_p75: Math.round(p.tvl_usd*p75*growth*age),
+      sensitivity_low: Math.min(Math.round(p.tvl_usd*global*growth*age), Math.round(p.tvl_usd*p75*growth*age)),
+      sensitivity_high: Math.max(Math.round(p.tvl_usd*global*growth*age), Math.round(p.tvl_usd*p75*growth*age)),
       multiple_used: multiple, growth_factor: growth, age_factor: age,
       growth_multiplier: growth, maturity_multiplier: age, implied_value_usd: implied,
       derivation: `TVL $${p.tvl_usd} × category multiple ${multiple} (${group.length} comps; global median ${global}) × growth ${growth} (7d ${p.change_7d ?? 'unreported'}%) × age ${age} (${years ?? 'unknown'} years) = $${implied}; records no token.`,

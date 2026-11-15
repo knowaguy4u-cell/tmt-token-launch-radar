@@ -1,0 +1,18 @@
+PASS: 198 rows; watchlist 40/40; 144 comparables
+PASS: board_file, sorted_by_value, coverage, farm_steps, dashboard_files, screenshot_format, dossier_matches
+PASS: candidate separation, formula, factors, unique farm text, reordered input, token-record test, unchanged vendor
+PASS: consecutive runs identical for every output file
+board.json SHA256 79620efeb493f10cdbff31994d171c48b0ba77f6a5c27f56a5d300b016639055
+dossier.json SHA256 5f8d2087d0553c6898ec4c0d4064b2dae4d9391b3c6c028c0b1614d3fa28c876 (689443 bytes)
+Top 10:
+1. Sentora Curator (sentora-curator): $498,197,777
+2. Steakhouse Financial (steakhouse-financial): $453,786,055
+3. Gauntlet (gauntlet): $293,675,113
+4. Veda (veda): $228,612,802
+5. USDD (usdd): $171,905,382
+6. Upshift (upshift): $94,642,305
+7. Bittensor dTAO (bittensor-dtao): $92,307,796
+8. OnRe (onre): $77,975,857
+9. Nonce Capital (nonce-capital): $67,819,160
+10. BitFi Basis (bitfi-basis): $66,192,812
+INCOMPLETE: 3 screenshots still match starter captures; current-dashboard capture required

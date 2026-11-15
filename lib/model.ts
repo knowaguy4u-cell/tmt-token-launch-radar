@@ -18,7 +18,7 @@ export const MODEL = {
 export const MODEL_VERSION = 'tmt-comparables-1';
 const excluded = new Set(['Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'CEX']);
 export function isRankable(p: SnapshotProtocol): boolean {
-  return p.mcap_usd === null && !excluded.has(p.category ?? '') &&
+  return p.mcap_usd === null && p.symbol === null && p.gecko_id === null && !excluded.has(p.category ?? '') &&
     !/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i.test(p.name) &&
     !/\b(?:wrapped|staked|staking)\b/i.test(p.name) &&
     !/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name);
@@ -113,6 +113,7 @@ export function buildRadar(snapshot: Snapshot) {
   const board = buildBoard(snapshot);
   const live = snapshot.protocols.filter(p => p.mcap_usd !== null).sort((a,b) => b.mcap_usd!-a.mcap_usd! || lexical(a.slug,b.slug));
   return { board, radar: { as_of: snapshot.as_of, source: snapshot.source, floor_usd: snapshot.floor_usd,
+    tracked_size: snapshot.protocols.length, comparable_size: snapshot.protocols.filter(p => p.mcap_usd !== null && p.tvl_usd > 0).length, watchlist: snapshot.watchlist,
     model: MODEL, model_version: MODEL_VERSION, watchlist_size: snapshot.watchlist.length,
     board_size: board.length, early_size: board.filter(p => p.tvl_usd < snapshot.floor_usd).length,
     live_size: live.length, rows: board, live } };

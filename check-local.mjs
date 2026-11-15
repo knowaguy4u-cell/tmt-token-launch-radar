@@ -26,12 +26,15 @@ const known = new Map(snapshot.protocols.map(p => [p.slug,p]));
 const seen = new Set();
 const allSteps = new Set();
 const denied = new Set(['Bridge','Canonical Bridge','Liquid Staking','Liquid Restaking','Restaked BTC','CEX']);
-const expected = snapshot.protocols.filter(p => p.mcap_usd === null && !denied.has(p.category) && !/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i.test(p.name) && !/\b(wrapped|staked|staking)\b/i.test(p.name) && !/^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name));
+const expected = snapshot.protocols.filter(p => p.mcap_usd === null && p.symbol === null && p.gecko_id === null && !denied.has(p.category) && !/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i.test(p.name) && !/\b(wrapped|staked|staking)\b/i.test(p.name) && !/^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)/i.test(p.name));
 assert.equal(rows.length, expected.length);
+assert.equal(rows.length,198);
+assert.equal(snapshot.watchlist.length,40);
 for (const [i,r] of rows.entries()) {
   assert(known.has(r.slug) && !seen.has(r.slug)); seen.add(r.slug);
   assert(/^\S{1,128}$/.test(r.slug) && typeof r.name === 'string' && r.name.trim());
   assert(isRankable(known.get(r.slug)));
+  for (const field of ["mcap_usd", "symbol", "gecko_id"]) assert.equal(known.get(r.slug)[field], null);
   assert.equal(r.rank, i+1);
   assert(Number.isSafeInteger(r.implied_value_usd) && r.implied_value_usd > 0 && r.implied_value_usd <= 1e14);
   if (i) assert(rows[i-1].implied_value_usd >= r.implied_value_usd);
@@ -65,11 +68,10 @@ function walk(dir, relative='') {
 const files=walk(join(out,'dashboard'));
 assert(files.some(f=>f.relative==='index.html'));
 for(const ext of ['.css','.js']) assert(files.some(f=>extname(f.path)===ext));
-assert(files.length <=400 && files.reduce((n,f)=>n+f.bytes.length,0)<=4194304);
+assert(files.length <=400 && files.reduce((n,f)=>n+f.bytes.length,0)<=60000);
 for(const f of files) {
-  assert.deepEqual(f.bytes,readFileSync(join(kit,'starter/dashboard',f.relative)));
   const text=f.bytes.toString('utf8');
-  // Conservative offline check: the starter has no network URLs in any source context.
+  // Conservative offline check across every source context.
   assert(!/https?:\/\//i.test(text),f.relative);
 }
 const shots=walk(join(out,'screenshots'));
@@ -82,7 +84,6 @@ function crc32(bytes) {
 for(const f of shots) {
   const b=f.bytes;
   assert(b.length<=524288);
-  assert.deepEqual(b,readFileSync(join(kit,'starter/screenshots',f.relative)));
   assert.equal(b.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
   let at=8, ended=false, width, height, depth, color, interlace;
   const data=[];
@@ -96,7 +97,7 @@ for(const f of shots) {
     if(type==='IEND') {assert.equal(n,0);ended=true;break;}
   }
   assert(ended && at===b.length);
-  assert(Math.max(width,height)<=1440 && Math.min(width,height)>=800);
+  assert.equal(width,1440); assert.equal(height,900);
   assert.equal(interlace,0);
   const channels={0:1,2:3,3:1,4:2,6:4}[color]; assert(channels);
   const stride=Math.ceil(width*channels*depth/8)+1;
@@ -111,10 +112,17 @@ const first=walk(out).map(f=>[f.relative,sha(f.bytes)]);
 run();
 assert.deepEqual(walk(out).map(f=>[f.relative,sha(f.bytes)]),first);
 console.log(`PASS: ${rows.length} rows; watchlist ${snapshot.watchlist.length}/${snapshot.watchlist.length}; 144 comparables`);
-console.log('PASS: board_file, sorted_by_value, coverage, farm_steps, dashboard_files, screenshots, dossier_matches');
-console.log('PASS: candidate separation, formula, factors, unique farm text, reordered input, unchanged starter assets/vendor');
+console.log('PASS: board_file, sorted_by_value, coverage, farm_steps, dashboard_files, screenshot_format, dossier_matches');
+console.log('PASS: candidate separation, formula, factors, unique farm text, reordered input, token-record test, unchanged vendor');
 console.log('PASS: consecutive runs identical for every output file');
 console.log(`board.json SHA256 ${sha(bytes)}`);
 console.log(`dossier.json SHA256 ${sha(dossier)} (${dossier.length} bytes)`);
 console.log('Top 10:');
 for(const r of rows.slice(0,10)) console.log(`${r.rank}. ${r.name} (${r.slug}): $${r.implied_value_usd.toLocaleString('en-US')}`);
+
+// Format validity cannot establish that screenshots show the current implementation.
+const stale=shots.filter(f=>f.bytes.equals(readFileSync(join(kit,'starter/screenshots',f.relative))));
+if(stale.length){
+ console.log(`INCOMPLETE: ${stale.length} screenshots still match starter captures; current-dashboard capture required`);
+ process.exitCode=1;
+}

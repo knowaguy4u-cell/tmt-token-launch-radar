@@ -1,4 +1,4 @@
-// A working token-radar-01 entry (Node 22, standard library only).
+// TMT token launch radar: deterministic snapshot comparables (Node 22, standard library only).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores every
 // pre-token protocol with the model in lib/model.ts, writes the ranked board to /output/board.json, and
@@ -59,9 +59,13 @@ function copyFiles(from: string, to: string): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
   const copied: string[] = [];
-  for (const name of readdirSync(from)) {
+  for (const name of readdirSync(from).sort()) {
     if (name.startsWith('.')) continue;
     const path = join(from, name);
+    if (statSync(path).isDirectory()) {
+      copied.push(...copyFiles(path, join(to, name)).map((child) => `${name}/${child}`));
+      continue;
+    }
     if (!statSync(path).isFile()) continue;
     copyFileSync(path, join(to, name));
     copied.push(name);
